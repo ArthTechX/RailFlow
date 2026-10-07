@@ -1,0 +1,71 @@
+x-service: &service
+  build: .
+  env_file: .env
+  environment: &environment
+    DATABASE_URL: postgresql://railflow:railflow@postgres:5432/railflow?schema=public
+    REDIS_URL: redis://redis:6379
+    ELASTICSEARCH_URL: http://elasticsearch:9200
+    SMTP_HOST: mailpit
+  depends_on:
+    postgres: {condition: service_healthy}
+    redis: {condition: service_healthy}
+    elasticsearch: {condition: service_healthy}
+    migrate: {condition: service_completed_successfully}
+  restart: unless-stopped
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: railflow, POSTGRES_PASSWORD: railflow, POSTGRES_DB: railflow}
+    ports: ['127.0.0.1:5432:5432']
+    volumes: ['postgres-data:/var/lib/postgresql/data']
+    healthcheck: {test: ['CMD-SHELL', 'pg_isready -U railflow'], interval: 5s, timeout: 3s, retries: 20}
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    ports: ['127.0.0.1:6379:6379']
+    volumes: ['redis-data:/data']
+    healthcheck: {test: ['CMD', 'redis-cli', 'ping'], interval: 5s, timeout: 3s, retries: 20}
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    environment: {discovery.type: single-node, xpack.security.enabled: 'false', ES_JAVA_OPTS: '-Xms512m -Xmx512m'}
+    ports: ['127.0.0.1:9200:9200']
+    volumes: ['elastic-data:/usr/share/elasticsearch/data']
+    healthcheck: {test: ['CMD-SHELL', 'curl -fsS http://localhost:9200/_cluster/health'], interval: 10s, timeout: 5s, retries: 30}
+  mailpit:
+    image: axllent/mailpit:v1.22
+    ports: ['127.0.0.1:8025:8025', '127.0.0.1:1025:1025']
+  migrate:
+    build: .
+    env_file: .env
+    environment: *environment
+    command: npm run db:migrate
+    depends_on:
+      postgres: {condition: service_healthy}
+  auth:
+    <<: *service
+    command: node dist/services/auth-service/src/index.js
+  search:
+    <<: *service
+    command: node dist/services/search-service/src/index.js
+  booking:
+    <<: *service
+    command: node dist/services/booking-service/src/index.js
+  payment:
+    <<: *service
+    command: node dist/services/payment-service/src/index.js
+  worker:
+    <<: *service
+    command: node dist/services/notification-service/src/index.js
+  gateway:
+    <<: *service
+    ports: ['127.0.0.1:3000:3000']
+    environment:
+      <<: *environment
+      AUTH_URL: http://auth:3001
+      SEARCH_URL: http://search:3002
+      BOOKING_URL: http://booking:3003
+      PAYMENT_URL: http://payment:3004
+volumes:
+  postgres-data:
+  redis-data:
+  elastic-data:

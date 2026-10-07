@@ -1,0 +1,170 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  REFUNDED
+  PAYMENT_FAILED
+}
+enum PassengerStatus {
+  CONFIRMED
+  WAITLISTED
+}
+enum PaymentStatus {
+  CREATED
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+model User {
+  id String @id @default(cuid())
+  googleId String @unique
+  email String @unique
+  name String
+  createdAt DateTime @default(now())
+  bookings Booking[]
+  sessions RefreshSession[]
+}
+model RefreshSession {
+  id String @id @default(cuid())
+  tokenHash String @unique
+  userId String
+  user User @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  revokedAt DateTime?
+}
+model Station {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  city String
+  stops TrainStop[]
+  origins Journey[] @relation("origin")
+  destinations Journey[] @relation("destination")
+}
+model Train {
+  id String @id @default(cuid())
+  number String @unique
+  name String
+  routes Route[]
+  coaches Coach[]
+  journeys Journey[]
+}
+model Route {
+  id String @id @default(cuid())
+  trainId String
+  train Train @relation(fields: [trainId], references: [id])
+  stops TrainStop[]
+  journeys Journey[]
+}
+model TrainStop {
+  id String @id @default(cuid())
+  routeId String
+  route Route @relation(fields: [routeId], references: [id])
+  stationId String
+  station Station @relation(fields: [stationId], references: [id])
+  position Int
+  arrivalMinutes Int
+  departureMinutes Int
+  @@unique([routeId, position])
+}
+model Coach {
+  id String @id @default(cuid())
+  trainId String
+  train Train @relation(fields: [trainId], references: [id])
+  name String
+  class String
+  seats Seat[]
+  @@unique([trainId, name])
+}
+model Seat {
+  id String @id @default(cuid())
+  coachId String
+  coach Coach @relation(fields: [coachId], references: [id])
+  number Int
+  berth String
+  inventory JourneySeat[]
+  @@unique([coachId, number])
+}
+model Journey {
+  id String @id @default(cuid())
+  trainId String
+  train Train @relation(fields: [trainId], references: [id])
+  routeId String
+  route Route @relation(fields: [routeId], references: [id])
+  sourceId String
+  source Station @relation("origin", fields: [sourceId], references: [id])
+  destinationId String
+  destination Station @relation("destination", fields: [destinationId], references: [id])
+  departureAt DateTime
+  arrivalAt DateTime
+  farePaise Int
+  seats JourneySeat[]
+  bookings Booking[]
+  @@index([sourceId, destinationId, departureAt])
+}
+model JourneySeat {
+  id String @id @default(cuid())
+  journeyId String
+  journey Journey @relation(fields: [journeyId], references: [id])
+  seatId String
+  seat Seat @relation(fields: [seatId], references: [id])
+  passengerId String? @unique
+  passenger Passenger? @relation(fields: [passengerId], references: [id])
+  @@unique([journeyId, seatId])
+  @@index([journeyId, passengerId])
+}
+model Booking {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id])
+  journeyId String
+  journey Journey @relation(fields: [journeyId], references: [id])
+  status BookingStatus @default(PENDING)
+  idempotencyKey String
+  requestHash String
+  amountPaise Int
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  passengers Passenger[]
+  payment Payment?
+  @@unique([userId, idempotencyKey])
+  @@index([status, expiresAt])
+}
+model Passenger {
+  id String @id @default(cuid())
+  bookingId String
+  booking Booking @relation(fields: [bookingId], references: [id])
+  name String
+  age Int
+  status PassengerStatus
+  allocation JourneySeat?
+}
+model Payment {
+  id String @id @default(cuid())
+  bookingId String @unique
+  booking Booking @relation(fields: [bookingId], references: [id])
+  provider String
+  providerId String? @unique
+  checkoutUrl String?
+  status PaymentStatus @default(CREATED)
+  amountPaise Int
+  createdAt DateTime @default(now())
+}
+model OutboxEvent {
+  id String @id @default(cuid())
+  type String
+  payload Json
+  createdAt DateTime @default(now())
+  publishedAt DateTime?
+}
+model WebhookEvent {
+  id String @id
+  createdAt DateTime @default(now())
+}
